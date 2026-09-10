@@ -64,7 +64,8 @@ def order_text_from_excel(uploaded, selected_date: str) -> str:
     sheet = workbook.active
     date_pattern = re.compile(r"(?:Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday|Senin|Selasa|Rabu|Kamis|Jumat|Sabtu|Minggu)", re.I)
     active_date = ""
-    rows = []
+    orders = []
+    current = None
     for row in sheet.iter_rows():
         values = [cell.value for cell in row]
         text = " ".join(str(value) for value in values if value not in (None, ""))
@@ -75,29 +76,45 @@ def order_text_from_excel(uploaded, selected_date: str) -> str:
             continue
         if not text:
             continue
-        # The example uses F:R for its order table: restaurant, item, quantity,
-        # unit, item amount, delivery details, and other recap fields.
+        # In the example, D starts a new order. F contains either the restaurant
+        # or metadata such as PO/DT/address/atas-nama for that same order.
         cells = values[5:18]
         restaurant, _, item, _, quantity, _, unit, price, item_amount, sales, delivery, pickup, buy_price = (cells + [None] * 13)[:13]
-        if item or delivery or pickup or restaurant:
-            rows.append({"restaurant": restaurant, "item": item, "quantity": quantity, "unit": unit, "amount": item_amount or price or sales, "delivery": delivery or pickup, "buy_price": buy_price})
-    if not rows:
+        if restaurant == "Resto" or item == "Nama Item":
+            continue
+        if values[3] not in (None, ""):
+            current = {"restaurant": "", "items": [], "metadata": [], "total": None}
+            orders.append(current)
+        if current is None:
+            continue
+        restaurant_text = str(restaurant or "").strip()
+        if restaurant_text:
+            if re.match(r"^(PO\w+|DT\s*)", restaurant_text, re.I):
+                current["metadata"].append(restaurant_text)
+            elif not current["restaurant"]:
+                current["restaurant"] = restaurant_text
+        if item and str(item).strip().lower() != "ongkir":
+            current["items"].append({"item": item, "quantity": quantity, "unit": unit, "price": price, "amount": item_amount})
+        if item and str(item).strip().lower() == "ongkir":
+            current["metadata"].append(f"ongkir: {price or delivery or pickup}")
+        if sales not in (None, ""):
+            current["total"] = sales
+    if not orders:
         return f"No order rows found for date containing `{selected_date}`."
 
-    lines = [f"ORDER LIST — {selected_date}"]
-    for number, row in enumerate(rows, 1):
-        details = [f"{number}. {row['restaurant'] or '(restaurant missing)'}"]
-        if row["item"]:
-            details.append(f"item: {row['item']}")
-        if row["quantity"] not in (None, ""):
-            details.append(f"amount: {row['quantity']} {row['unit'] or ''}".strip())
-        if row["amount"] not in (None, ""):
-            details.append(f"price/total: {row['amount']}")
-        if row["delivery"]:
-            delivery = str(row["delivery"])
+    lines = [f"ORDER LIST - {selected_date}"]
+    for number, order in enumerate(orders, 1):
+        details = [f"{number}. {order['restaurant'] or '(restaurant missing)'}"]
+        items = "; ".join(f"{item['item']} x {item['quantity'] or '?'} {item['unit'] or ''} ({item['amount'] or item['price'] or 'price missing'})" for item in order["items"])
+        if items:
+            details.append(f"items: {items}")
+        if order["total"]:
+            details.append(f"total: {order['total']}")
+        if order["metadata"]:
+            delivery = " | ".join(order["metadata"])
+            details.append(f"details: {delivery}")
             delivery_time = re.search(r"DT\s*([0-9:.]+)", delivery, re.I)
             recipient = re.search(r"(?:A\.n\.?|a\.n\.?)\s*(.+)$", delivery)
-            details.append(f"delivery: {delivery}")
             if delivery_time:
                 details.append(f"delivery time: {delivery_time.group(1)}")
             if recipient:
