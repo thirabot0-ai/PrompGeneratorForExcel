@@ -31,11 +31,35 @@ template cells blank. Keep orders separated by date when the template uses date
 sections. Interpret `DT` as delivery time/details and `A.n.` or `a.n.` as atas
 nama (the recipient/order name).
 
+For this specific workbook, write the data into the existing table as follows:
+- Date section headers are in column F and look like `Rabu,1 Juli 2026`.
+- The table headers are on the row immediately below each date header.
+- Column F is normally the restaurant, but it can also contain PO codes,
+  delivery text, addresses, or `DT... a.n. ...` metadata. Never create a new
+  restaurant from a PO/DT/address value.
+- Column H is `Nama Item`; column I is item type; J is quantity; K is ready
+  stock; L is unit; M is unit price; N is item total; O is order total;
+  P is delivery/ongkir detail; Q is pickup code such as T1/T2.
+- A non-empty order number in column D starts a new order. Blank order-number
+  cells continue the previous order until the next order number.
+- Put each chat item into the matching existing order section. Put delivery
+  time, address, PO code, atas nama, and ongkir in the existing row/field used
+  by the template; do not move them into the restaurant field.
+- If the requested date section does not exist, add a new date section by
+  copying the existing date section's formatting and formulas, then fill it.
+
+Do not merely rename the workbook. The output is invalid unless the new chat
+values are visibly written into the cells and the original example values are
+replaced or extended for the requested date.
+
 Critical file rule:
 - Produce exactly one workbook named `rekap_pesanan.xlsx`.
 - Do not create files named V1, V2, Final, New, timestamped, or duplicate files.
 - Do not add worksheets, columns, helper files, or redesign the workbook.
 - Return only the completed workbook and a short note about ambiguous values.
+
+Before returning, verify that the workbook contains the requested date,
+restaurant names, item names, quantities, prices, DT times, and A.n. names.
 
 Structured input:
 {json.dumps(payload, ensure_ascii=False, indent=2)}
