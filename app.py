@@ -17,8 +17,10 @@ def payload_for(chats: list[dict], order_date: str) -> dict:
 
 def build_prompt(payload: dict, has_template: bool) -> str:
     template_rule = (
-        "Use the attached Excel workbook as the single source of truth. Preserve its sheet names, "
-        "layout, merged cells, formulas, formatting, widths, number formats, and column order exactly."
+        "Use the attached Excel workbook as a STRUCTURE-ONLY template. Create a fresh workbook with the "
+        "same sheet names, layout, merged cells, column order, widths, borders, fills, fonts, alignment, "
+        "number formats, row heights, and formulas. The example orders, restaurants, PO codes, dates, "
+        "customers, prices, and totals are sample data only: do not copy them into the output."
         if has_template
         else "No Excel template was attached. If you generate a workbook, use a simple order table and say that the original template was not provided."
     )
@@ -42,24 +44,35 @@ For this specific workbook, write the data into the existing table as follows:
   P is delivery/ongkir detail; Q is pickup code such as T1/T2.
 - A non-empty order number in column D starts a new order. Blank order-number
   cells continue the previous order until the next order number.
-- Put each chat item into the matching existing order section. Put delivery
-  time, address, PO code, atas nama, and ongkir in the existing row/field used
-  by the template; do not move them into the restaurant field.
-- If the requested date section does not exist, add a new date section by
-  copying the existing date section's formatting and formulas, then fill it.
+- Build date sections only for dates found in the new input. Put each chat item
+  into its matching new date section. Put delivery time,
+  address, PO code, atas nama, and ongkir in the existing row/field used by the
+  template; do not move them into the restaurant field.
+- Start with blank data rows. Never copy sample order values from the attached
+  workbook. If several messages contain the same date, combine them in that
+  one new date section; do not overwrite one message with another.
+- For every new date, create a complete section by copying only the template's
+  structure: date row, header row, body-row borders, fills, fonts, alignment,
+  number formats, row heights, and formulas. Then fill the blank body rows with
+  the new input.
+- Never use a blank row without copying its neighboring body-row styles. Every
+  new item row must have the same borders and formatting as the template body.
 
-Do not merely rename the workbook. The output is invalid unless the new chat
-values are visibly written into the cells and the original example values are
-replaced or extended for the requested date.
+Do not merely rename or copy the attached workbook. The output is invalid if it
+contains the example's old orders or only changes the filename. It must be a
+fresh workbook containing the new chat values in the copied template layout.
 
 Critical file rule:
 - Produce exactly one workbook named `rekap_pesanan.xlsx`.
 - Do not create files named V1, V2, Final, New, timestamped, or duplicate files.
 - Do not add worksheets, columns, helper files, or redesign the workbook.
+- Do not carry over sample date tables or sample orders unless that date and
+  order are present in the new input.
 - Return only the completed workbook and a short note about ambiguous values.
 
-Before returning, verify that the workbook contains the requested date,
-restaurant names, item names, quantities, prices, DT times, and A.n. names.
+Before returning, verify that the fresh workbook contains the input dates,
+restaurant names, item names, quantities, prices, DT times, and A.n. names,
+while none of the template's sample order values remain.
 
 Structured input:
 {json.dumps(payload, ensure_ascii=False, indent=2)}
