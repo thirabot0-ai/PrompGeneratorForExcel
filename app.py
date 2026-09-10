@@ -15,7 +15,28 @@ def payload_for(chats: list[dict], order_date: str) -> dict:
     return {"date": order_date, "messages": chats}
 
 
-def build_prompt(payload: dict, has_template: bool) -> str:
+def template_manifest(uploaded) -> dict:
+    if not uploaded:
+        return {"attached_to_streamlit": False}
+    try:
+        import openpyxl
+    except ImportError as exc:
+        raise RuntimeError("Install dependencies first: pip install -r requirements.txt") from exc
+    workbook = openpyxl.load_workbook(BytesIO(uploaded.getvalue()), data_only=False)
+    result = {"attached_to_streamlit": True, "filename": uploaded.name, "sheets": []}
+    for sheet in workbook.worksheets:
+        result["sheets"].append({
+            "name": sheet.title,
+            "max_row": sheet.max_row,
+            "max_column": sheet.max_column,
+            "headers": [sheet.cell(5, column).value for column in range(4, min(sheet.max_column, 18) + 1)],
+            "date_rows": [row for row in range(1, sheet.max_row + 1) if any("2026" in str(sheet.cell(row, column).value) for column in range(1, sheet.max_column + 1))],
+        })
+    return result
+
+
+def build_prompt(payload: dict, manifest: dict) -> str:
+    has_template = manifest.get("attached_to_streamlit", False)
     template_rule = (
         "Use the attached Excel workbook as a STRUCTURE-ONLY template. Create a fresh workbook with the "
         "same sheet names, layout, merged cells, column order, widths, borders, fills, fonts, alignment, "
@@ -76,6 +97,13 @@ while none of the template's sample order values remain.
 
 Structured input:
 {json.dumps(payload, ensure_ascii=False, indent=2)}
+
+Template manifest extracted by the prompt builder:
+{json.dumps(manifest, ensure_ascii=False, indent=2)}
+
+The prompt builder cannot attach files to Gemini Web. You must attach the actual
+Excel file separately in the same Gemini conversation. The manifest above is
+only a fallback description and cannot reproduce borders or formatting by itself.
 """
 
 
@@ -167,7 +195,7 @@ st.caption("Batch WhatsApp chats into one strict prompt for Gemini Web.")
 with st.sidebar:
     st.header("Optional Excel template")
     template = st.file_uploader("Upload the example workbook", type=["xlsx"])
-    st.info("Images are not needed. Upload the Excel only when you need Gemini to match its exact design.")
+    st.info("Images are not needed. This upload is not automatically sent to Gemini; attach the downloaded Excel separately in Gemini Web.")
 
 left, right = st.columns(2)
 with left:
@@ -179,7 +207,13 @@ with left:
     if pasted.strip():
         chats.append({"name": "pasted-chat", "text": pasted.strip()})
     payload = payload_for(chats, str(order_date))
-    prompt = build_prompt(payload, template is not None)
+    try:
+        manifest = template_manifest(template)
+        prompt = build_prompt(payload, manifest)
+    except (OSError, RuntimeError, ValueError) as exc:
+        st.error(str(exc))
+        manifest = {"attached_to_streamlit": False}
+        prompt = build_prompt(payload, manifest)
 
     st.subheader("2. Generate order list from the Excel")
     summary_date = st.text_input("Date to find in the workbook", value=order_date.strftime("%Y-%m-%d"))
@@ -194,6 +228,8 @@ with left:
 
 with right:
     st.subheader("3. Prompt for Gemini Web")
+    if template:
+        st.download_button("Download Excel template for Gemini", template.getvalue(), template.name, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
     st.code(prompt, language="text")
     artifact = {"prompt": prompt, "payload": payload}
     st.download_button("Download gemini_prompt.json", json.dumps(artifact, ensure_ascii=False, indent=2), "gemini_prompt.json", "application/json")

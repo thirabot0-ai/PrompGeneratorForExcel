@@ -5,7 +5,9 @@ pip install -r requirements.txt
 streamlit run app.py
 ```
 
-Upload the Excel template only when exact formatting is needed. Add multiple
+Upload the Excel template only when exact formatting is needed. The Streamlit
+upload is not automatically visible to Gemini Web, so download it from the app
+and attach it manually in the same Gemini conversation. Add multiple
 `.txt` chat files or paste chats in bulk. The app does not call Gemini or need
 the client screenshots. It generates one strict prompt and JSON payload that
 tells Gemini to create one fresh workbook named `rekap_pesanan.xlsx` using the
