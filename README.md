@@ -15,6 +15,8 @@ updates, without V1/V2/Final duplicates. With an uploaded workbook, it can also
 create a dated order list containing items, quantities, prices, `DT` delivery
 details, and `A.n.` recipient names.
 
-The bundled `Pricelist TFF26.pdf` is loaded automatically when present. Prices
-can be edited in the app; matching chat lines such as `carrot 3kg` add a
-calculated `3 × price/kg` total to the Gemini payload.
+The bundled `Thira_Fresh_Farm_Pricelist_updated.xlsx` is loaded automatically.
+It reads all sheets using the `Product`, `Pricing Unit`, and `Price (Rp)`
+columns. Prices can be changed with the product selector and price field; a chat line such as `carrot 3kg`
+matches Baby Carrots and adds a calculated `3 × price/kg` total to the Gemini
+payload.

@@ -9,36 +9,36 @@ import streamlit as st
 
 ROOT = Path(__file__).parent
 PROMPT_PATH = ROOT / "output" / "gemini_prompt.json"
-PRICE_LIST = ROOT / "Pricelist TFF26.pdf"
+PRICE_LIST = ROOT / "Thira_Fresh_Farm_Pricelist_updated.xlsx"
 
 
 def read_pricelist(uploaded) -> list[dict]:
     if not uploaded:
         return []
     try:
-        from pypdf import PdfReader
+        import openpyxl
     except ImportError as exc:
         raise RuntimeError("Install dependencies first: pip install -r requirements.txt") from exc
-    reader = PdfReader(BytesIO(uploaded.getvalue()))
+    workbook = openpyxl.load_workbook(BytesIO(uploaded.getvalue()), data_only=True)
     rows = []
-    for page in reader.pages:
-        for line in (page.extract_text() or "").splitlines():
-            line = " ".join(line.split())
-            match = re.search(r"(.+?)\s+(?:Rp\s*)?([\d.,]+)\s*(kg|kilogram|pack|pcs|piece|box|ikat|bunch)?$", line, re.I)
-            if not match:
+    for sheet in workbook.worksheets:
+        headers = [str(cell.value or "").strip().lower() for cell in sheet[1]]
+        indexes = {header: index for index, header in enumerate(headers)}
+        if "product" not in indexes or "price (rp)" not in indexes:
+            continue
+        for values in sheet.iter_rows(min_row=2, values_only=True):
+            item = values[indexes["product"]]
+            price = values[indexes["price (rp)"]]
+            if not item or price in (None, ""):
                 continue
-            name = re.sub(r"^[\d.)\- ]+", "", match.group(1)).strip()
-            if len(name) < 2 or not re.search(r"[A-Za-z]", name):
-                continue
-            raw_price = match.group(2)
-            price = float(raw_price.replace(".", "").replace(",", ".") if "," in raw_price else raw_price.replace(".", ""))
-            if price > 100000000:
-                continue
-            rows.append({"item": name, "unit": (match.group(3) or "pack").lower(), "price": price})
-    unique = {}
-    for row in rows:
-        unique[(row["item"].lower(), row["unit"])] = row
-    return list(unique.values())
+            rows.append({
+                "item": str(item).strip(),
+                "unit": str(values[indexes.get("pricing unit", 0)] or "pack").strip().lower(),
+                "price": float(price),
+                "category": str(values[indexes.get("category", 0)] or "").strip(),
+                "option": str(values[indexes.get("option", 0)] or "").strip(),
+            })
+    return rows
 
 
 def calculate_orders(chats: list[dict], prices: list[dict]) -> list[dict]:
@@ -49,7 +49,11 @@ def calculate_orders(chats: list[dict], prices: list[dict]) -> list[dict]:
         unit = str(row.get("unit", "pack")).strip().lower()
         if not item or not row.get("price"):
             continue
-        escaped = re.escape(item.lower())
+        item_aliases = {item.lower(), item.lower().rstrip("s")}
+        if item.lower().startswith("baby "):
+            item_aliases.add(item.lower()[5:])
+            item_aliases.add(item.lower()[5:].rstrip("s"))
+        escaped = "(?:" + "|".join(re.escape(alias) for alias in sorted(item_aliases, key=len, reverse=True)) + ")"
         unit_pattern = r"kg|kilogram|pack|pcs|piece|box|ikat|bunch"
         patterns = [
             rf"\b{escaped}\b\s*[:\-]?\s*(\d+(?:[.,]\d+)?)\s*({unit_pattern})?",
@@ -250,7 +254,7 @@ with st.sidebar:
     st.header("Workbook inputs")
     template = st.file_uploader("Initial example/template (optional)", type=["xlsx"], key="template")
     existing = st.file_uploader("Current rekap_pesanan.xlsx for updates (optional)", type=["xlsx"], key="existing")
-    pricelist_upload = st.file_uploader("Pricelist PDF (optional)", type=["pdf"], key="pricelist")
+    pricelist_upload = st.file_uploader("Pricelist Excel (optional)", type=["xlsx"], key="pricelist")
     st.info("For later entries, upload the latest rekap_pesanan.xlsx here. Attach the downloaded workbook manually in Gemini Web.")
 
 left, right = st.columns(2)
@@ -268,16 +272,25 @@ with left:
     except (OSError, RuntimeError, ValueError) as exc:
         st.warning(f"Pricelist could not be read automatically: {exc}")
         price_rows = []
+    if price_source is not None and not price_rows:
+        st.warning("No price rows were detected. Check that the workbook has Product and Price (Rp) columns, or edit the JSON below manually.")
+    source_key = pricelist_upload.name if pricelist_upload else str(PRICE_LIST)
+    if st.session_state.get("price_source") != source_key:
+        st.session_state.price_source = source_key
+        st.session_state.price_rows = price_rows
+    edited_prices = st.session_state.get("price_rows", price_rows)
     st.subheader("Price list")
-    st.caption("Edit this JSON when prices change. Use the same unit as the chat, such as kg or pack.")
-    edited_price_text = st.text_area("Editable prices", json.dumps(price_rows, ensure_ascii=False, indent=2), height=220, key="prices_json")
-    try:
-        edited_prices = json.loads(edited_price_text)
-        if not isinstance(edited_prices, list):
-            raise ValueError("Price list must be a JSON array")
-    except (json.JSONDecodeError, ValueError) as exc:
-        st.error(f"Invalid price list: {exc}")
-        edited_prices = []
+    st.caption("Choose a product and change its price when needed.")
+    if edited_prices:
+        product_names = [f"{row['item']} ({row['unit']})" for row in edited_prices]
+        selected_index = st.selectbox("Product", range(len(product_names)), format_func=lambda index: product_names[index])
+        selected_price = st.number_input("New price (Rp)", min_value=0.0, value=float(edited_prices[selected_index].get("price", 0)), step=500.0)
+        if st.button("Update price"):
+            edited_prices[selected_index]["price"] = selected_price
+            st.session_state.price_rows = edited_prices
+            st.success(f"Updated {edited_prices[selected_index]['item']}.")
+    else:
+        st.warning("No products loaded. Upload the pricelist Excel file.")
     calculated_orders = calculate_orders(chats, edited_prices)
     if calculated_orders:
         st.code(json.dumps(calculated_orders, ensure_ascii=False, indent=2), language="json")
