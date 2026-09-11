@@ -269,11 +269,18 @@ with left:
         st.warning(f"Pricelist could not be read automatically: {exc}")
         price_rows = []
     st.subheader("Price list")
-    st.caption("Edit prices here when they change. Use the same unit as the chat, such as kg or pack.")
-    edited_prices = st.data_editor(price_rows, num_rows="dynamic", use_container_width=True, key="prices")
+    st.caption("Edit this JSON when prices change. Use the same unit as the chat, such as kg or pack.")
+    edited_price_text = st.text_area("Editable prices", json.dumps(price_rows, ensure_ascii=False, indent=2), height=220, key="prices_json")
+    try:
+        edited_prices = json.loads(edited_price_text)
+        if not isinstance(edited_prices, list):
+            raise ValueError("Price list must be a JSON array")
+    except (json.JSONDecodeError, ValueError) as exc:
+        st.error(f"Invalid price list: {exc}")
+        edited_prices = []
     calculated_orders = calculate_orders(chats, edited_prices)
     if calculated_orders:
-        st.dataframe(calculated_orders, use_container_width=True, hide_index=True)
+        st.code(json.dumps(calculated_orders, ensure_ascii=False, indent=2), language="json")
     payload = payload_for(chats, str(order_date), calculated_orders)
     try:
         source_workbook = existing or template
