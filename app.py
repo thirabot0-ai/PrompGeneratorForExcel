@@ -35,9 +35,13 @@ def template_manifest(uploaded) -> dict:
     return result
 
 
-def build_prompt(payload: dict, manifest: dict) -> str:
+def build_prompt(payload: dict, manifest: dict, existing_output: bool) -> str:
     has_template = manifest.get("attached_to_streamlit", False)
     template_rule = (
+        "Use the attached `rekap_pesanan.xlsx` as the current workbook to UPDATE. Preserve every existing "
+        "date section, order, item, value, formula, and formatting. Add only the new input."
+        if existing_output
+        else
         "Use the attached Excel workbook as a STRUCTURE-ONLY template. Create a fresh workbook with the "
         "same sheet names, layout, merged cells, column order, widths, borders, fills, fonts, alignment, "
         "number formats, row heights, and formulas. The example orders, restaurants, PO codes, dates, "
@@ -45,7 +49,7 @@ def build_prompt(payload: dict, manifest: dict) -> str:
         if has_template
         else "No Excel template was attached. If you generate a workbook, use a simple order table and say that the original template was not provided."
     )
-    return f"""Convert the WhatsApp order messages below into the attached Excel workbook.
+    return f"""Convert the WhatsApp order messages below into the workbook.
 
 {template_rule}
 
@@ -69,26 +73,19 @@ For this specific workbook, write the data into the existing table as follows:
   into its matching new date section. Put delivery time,
   address, PO code, atas nama, and ongkir in the existing row/field used by the
   template; do not move them into the restaurant field.
-- Start with blank data rows. Never copy sample order values from the attached
-  workbook. If several messages contain the same date, combine them in that
-  one new date section; do not overwrite one message with another.
-- For every new date, create a complete section by copying only the template's
-  structure: date row, header row, body-row borders, fills, fonts, alignment,
-  number formats, row heights, and formulas. Then fill the blank body rows with
-  the new input.
+- {"For an update, keep all existing data. For the same date, append new rows after the last existing order in that date section. For a new date, add a complete new section below the last existing section." if existing_output else "Start with blank data rows. Never copy sample order values from the attached workbook. If several messages contain the same date, combine them in that one new date section; do not overwrite one message with another."}
+- {"When adding a new date section, copy the complete existing section's date row, header row, body-row borders, fills, fonts, alignment, number formats, row heights, and formulas." if existing_output else "For every new date, create a complete section by copying only the template's structure: date row, header row, body-row borders, fills, fonts, alignment, number formats, row heights, and formulas. Then fill the blank body rows with the new input."}
 - Never use a blank row without copying its neighboring body-row styles. Every
   new item row must have the same borders and formatting as the template body.
 
-Do not merely rename or copy the attached workbook. The output is invalid if it
-contains the example's old orders or only changes the filename. It must be a
-fresh workbook containing the new chat values in the copied template layout.
+Do not interpret this as permission to edit a user's local computer. Return one
+downloadable workbook. {"This is an update: the output must contain all previous data plus the new data." if existing_output else "This is initial creation: the output must contain only the new data in the copied template layout."}
 
 Critical file rule:
 - Produce exactly one workbook named `rekap_pesanan.xlsx`.
 - Do not create files named V1, V2, Final, New, timestamped, or duplicate files.
 - Do not add worksheets, columns, helper files, or redesign the workbook.
-- Do not carry over sample date tables or sample orders unless that date and
-  order are present in the new input.
+- {"Do not delete, replace, or recreate the existing 4 July table when adding 5 July. Do not delete any prior date." if existing_output else "Do not carry over sample date tables or sample orders unless that date and order are present in the new input."}
 - Return only the completed workbook and a short note about ambiguous values.
 
 Before returning, verify that the fresh workbook contains the input dates,
@@ -193,9 +190,10 @@ st.title("Gemini Excel Prompt Builder")
 st.caption("Batch WhatsApp chats into one strict prompt for Gemini Web.")
 
 with st.sidebar:
-    st.header("Optional Excel template")
-    template = st.file_uploader("Upload the example workbook", type=["xlsx"])
-    st.info("Images are not needed. This upload is not automatically sent to Gemini; attach the downloaded Excel separately in Gemini Web.")
+    st.header("Workbook inputs")
+    template = st.file_uploader("Initial example/template (optional)", type=["xlsx"], key="template")
+    existing = st.file_uploader("Current rekap_pesanan.xlsx for updates (optional)", type=["xlsx"], key="existing")
+    st.info("For later entries, upload the latest rekap_pesanan.xlsx here. Attach the downloaded workbook manually in Gemini Web.")
 
 left, right = st.columns(2)
 with left:
@@ -208,12 +206,13 @@ with left:
         chats.append({"name": "pasted-chat", "text": pasted.strip()})
     payload = payload_for(chats, str(order_date))
     try:
-        manifest = template_manifest(template)
-        prompt = build_prompt(payload, manifest)
+        source_workbook = existing or template
+        manifest = template_manifest(source_workbook)
+        prompt = build_prompt(payload, manifest, existing is not None)
     except (OSError, RuntimeError, ValueError) as exc:
         st.error(str(exc))
         manifest = {"attached_to_streamlit": False}
-        prompt = build_prompt(payload, manifest)
+        prompt = build_prompt(payload, manifest, existing is not None)
 
     st.subheader("2. Generate order list from the Excel")
     summary_date = st.text_input("Date to find in the workbook", value=order_date.strftime("%Y-%m-%d"))
@@ -228,7 +227,9 @@ with left:
 
 with right:
     st.subheader("3. Prompt for Gemini Web")
-    if template:
+    if existing:
+        st.download_button("Download current rekap for Gemini", existing.getvalue(), existing.name, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+    elif template:
         st.download_button("Download Excel template for Gemini", template.getvalue(), template.name, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
     st.code(prompt, language="text")
     artifact = {"prompt": prompt, "payload": payload}
