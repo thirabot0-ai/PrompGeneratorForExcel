@@ -9,10 +9,63 @@ import streamlit as st
 
 ROOT = Path(__file__).parent
 PROMPT_PATH = ROOT / "output" / "gemini_prompt.json"
+PRICE_LIST = ROOT / "Pricelist TFF26.pdf"
 
 
-def payload_for(chats: list[dict], order_date: str) -> dict:
-    return {"date": order_date, "messages": chats}
+def read_pricelist(uploaded) -> list[dict]:
+    if not uploaded:
+        return []
+    try:
+        from pypdf import PdfReader
+    except ImportError as exc:
+        raise RuntimeError("Install dependencies first: pip install -r requirements.txt") from exc
+    reader = PdfReader(BytesIO(uploaded.getvalue()))
+    rows = []
+    for page in reader.pages:
+        for line in (page.extract_text() or "").splitlines():
+            line = " ".join(line.split())
+            match = re.search(r"(.+?)\s+(?:Rp\s*)?([\d.,]+)\s*(kg|kilogram|pack|pcs|piece|box|ikat|bunch)?$", line, re.I)
+            if not match:
+                continue
+            name = re.sub(r"^[\d.)\- ]+", "", match.group(1)).strip()
+            if len(name) < 2 or not re.search(r"[A-Za-z]", name):
+                continue
+            raw_price = match.group(2)
+            price = float(raw_price.replace(".", "").replace(",", ".") if "," in raw_price else raw_price.replace(".", ""))
+            if price > 100000000:
+                continue
+            rows.append({"item": name, "unit": (match.group(3) or "pack").lower(), "price": price})
+    unique = {}
+    for row in rows:
+        unique[(row["item"].lower(), row["unit"])] = row
+    return list(unique.values())
+
+
+def calculate_orders(chats: list[dict], prices: list[dict]) -> list[dict]:
+    text = "\n".join(chat["text"] for chat in chats).lower()
+    results = []
+    for row in prices:
+        item = str(row.get("item", "")).strip()
+        unit = str(row.get("unit", "pack")).strip().lower()
+        if not item or not row.get("price"):
+            continue
+        escaped = re.escape(item.lower())
+        unit_pattern = r"kg|kilogram|pack|pcs|piece|box|ikat|bunch"
+        patterns = [
+            rf"\b{escaped}\b\s*[:\-]?\s*(\d+(?:[.,]\d+)?)\s*({unit_pattern})?",
+            rf"(\d+(?:[.,]\d+)?)\s*({unit_pattern})\s+\b{escaped}\b",
+        ]
+        match = next((re.search(pattern, text, re.I) for pattern in patterns if re.search(pattern, text, re.I)), None)
+        if not match:
+            continue
+        quantity = float(match.group(1).replace(",", "."))
+        found_unit = next((group for group in match.groups()[1:] if group), unit)
+        results.append({"item": item, "quantity": quantity, "unit": found_unit, "unit_price": row["price"], "total": round(quantity * float(row["price"]), 2)})
+    return results
+
+
+def payload_for(chats: list[dict], order_date: str, calculated_orders: list[dict]) -> dict:
+    return {"date": order_date, "messages": chats, "calculated_orders": calculated_orders}
 
 
 def template_manifest(uploaded) -> dict:
@@ -57,6 +110,10 @@ Use every message in the batch. Do not invent missing values. Leave unknown
 template cells blank. Keep orders separated by date when the template uses date
 sections. Interpret `DT` as delivery time/details and `A.n.` or `a.n.` as atas
 nama (the recipient/order name).
+
+Use the app-calculated prices below as the source for totals. Do not recalculate
+them differently. If an item is not in the price list, leave its price blank and
+mention it as ambiguous.
 
 For this specific workbook, write the data into the existing table as follows:
 - Date section headers are in column F and look like `Rabu,1 Juli 2026`.
@@ -193,6 +250,7 @@ with st.sidebar:
     st.header("Workbook inputs")
     template = st.file_uploader("Initial example/template (optional)", type=["xlsx"], key="template")
     existing = st.file_uploader("Current rekap_pesanan.xlsx for updates (optional)", type=["xlsx"], key="existing")
+    pricelist_upload = st.file_uploader("Pricelist PDF (optional)", type=["pdf"], key="pricelist")
     st.info("For later entries, upload the latest rekap_pesanan.xlsx here. Attach the downloaded workbook manually in Gemini Web.")
 
 left, right = st.columns(2)
@@ -204,7 +262,19 @@ with left:
     chats = [{"name": file.name, "text": file.getvalue().decode("utf-8", errors="replace")} for file in chat_files]
     if pasted.strip():
         chats.append({"name": "pasted-chat", "text": pasted.strip()})
-    payload = payload_for(chats, str(order_date))
+    price_source = pricelist_upload or (BytesIO(PRICE_LIST.read_bytes()) if PRICE_LIST.exists() else None)
+    try:
+        price_rows = read_pricelist(price_source)
+    except (OSError, RuntimeError, ValueError) as exc:
+        st.warning(f"Pricelist could not be read automatically: {exc}")
+        price_rows = []
+    st.subheader("Price list")
+    st.caption("Edit prices here when they change. Use the same unit as the chat, such as kg or pack.")
+    edited_prices = st.data_editor(price_rows, num_rows="dynamic", use_container_width=True, key="prices")
+    calculated_orders = calculate_orders(chats, edited_prices)
+    if calculated_orders:
+        st.dataframe(calculated_orders, use_container_width=True, hide_index=True)
+    payload = payload_for(chats, str(order_date), calculated_orders)
     try:
         source_workbook = existing or template
         manifest = template_manifest(source_workbook)

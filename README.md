@@ -14,3 +14,7 @@ It generates a strict prompt for either initial creation or non-destructive
 updates, without V1/V2/Final duplicates. With an uploaded workbook, it can also
 create a dated order list containing items, quantities, prices, `DT` delivery
 details, and `A.n.` recipient names.
+
+The bundled `Pricelist TFF26.pdf` is loaded automatically when present. Prices
+can be edited in the app; matching chat lines such as `carrot 3kg` add a
+calculated `3 × price/kg` total to the Gemini payload.
