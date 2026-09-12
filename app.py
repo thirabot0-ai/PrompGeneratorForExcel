@@ -1,4 +1,5 @@
 import json
+import hashlib
 import re
 from datetime import date, datetime
 from io import BytesIO
@@ -316,7 +317,8 @@ with left:
         price_rows = []
     if price_source is not None and not price_rows:
         st.warning("No price rows were detected. Check that the workbook has Product and Price (Rp) columns, or edit the JSON below manually.")
-    source_key = pricelist_upload.name if pricelist_upload else f"{PRICE_LIST}:{PRICE_LIST.stat().st_mtime_ns if PRICE_LIST.exists() else 0}"
+    source_bytes = pricelist_upload.getvalue() if pricelist_upload else (PRICE_LIST.read_bytes() if PRICE_LIST.exists() else b"")
+    source_key = hashlib.sha256(source_bytes).hexdigest()
     if st.session_state.get("price_source") != source_key:
         st.session_state.price_source = source_key
         st.session_state.price_rows = price_rows
