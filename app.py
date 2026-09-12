@@ -61,9 +61,15 @@ def calculate_orders(chats: list[dict], prices: list[dict]) -> list[dict]:
                     continue
                 if unit == "pcs" and re.search(r"\bpacks?\b", line):
                     continue
-                if option and option not in ("/pcs", "/pack") and option not in line:
-                    continue
+                if option and option not in ("/pcs", "/pack"):
+                    if option == "cut" and re.search(r"\bnon\s*cut\b", line):
+                        continue
+                    if option == "non cut" and not re.search(r"\bnon\s*cut\b", line):
+                        continue
+                    if option not in ("cut", "non cut") and option not in line:
+                        continue
                 pack_pattern = re.escape(pack_size).replace(r"\ ", r"\s*")
+                pack_pattern = re.sub(r"gr", r"(?:gr|g|grams?)", pack_pattern)
                 if pack_size and not re.search(rf"\b{pack_pattern}\b", line):
                     continue
                 if unit == "kg":
@@ -73,7 +79,8 @@ def calculate_orders(chats: list[dict], prices: list[dict]) -> list[dict]:
                 else:
                     match = re.search(r"(\d+(?:[.,]\d+)?)\s*packs?\b", line)
                 quantity = float(match.group(1).replace(",", ".")) if match else 1
-                results.append({"item": item, "category": row.get("category", ""), "option": option or pack_size, "quantity": quantity, "unit": unit, "unit_price": row["price"], "total": round(quantity * float(row["price"]), 2)})
+                variant = " / ".join(value for value in (option, pack_size) if value)
+                results.append({"item": item, "category": row.get("category", ""), "variant": variant, "pack_quantity": quantity, "unit": unit, "unit_price": row["price"], "total": round(quantity * float(row["price"]), 2)})
                 break
     return results
 
@@ -297,8 +304,12 @@ with left:
     st.subheader("Price list")
     st.caption("Choose a product and change its price when needed.")
     if edited_prices:
-        product_names = [f"{row['item']} | {row.get('option', '')} | {row.get('quantity', '')} | {row['unit']}" for row in edited_prices]
-        selected_index = st.selectbox("Product", range(len(product_names)), format_func=lambda index: product_names[index])
+        product_names = sorted({row["item"] for row in edited_prices})
+        selected_product = st.selectbox("Product", product_names)
+        variant_indices = [index for index, row in enumerate(edited_prices) if row["item"] == selected_product]
+        variant_labels = [f"{edited_prices[index].get('option', '')} / {edited_prices[index].get('quantity', '')} / {edited_prices[index]['unit']}" for index in variant_indices]
+        selected_variant = st.selectbox("Variant", range(len(variant_labels)), format_func=lambda index: variant_labels[index])
+        selected_index = variant_indices[selected_variant]
         selected_price = st.number_input("New price (Rp)", min_value=0.0, value=float(edited_prices[selected_index].get("price", 0)), step=500.0)
         if st.button("Update price"):
             edited_prices[selected_index]["price"] = selected_price
