@@ -12,6 +12,53 @@ ROOT = Path(__file__).parent
 PROMPT_PATH = ROOT / "output" / "gemini_prompt.json"
 PRICE_LIST = ROOT / "Thira_Fresh_Farm_Pricelist_updated.xlsx"
 PRICE_LIST_CACHE_VERSION = "exact-excel-rows-v3"
+PRODUCT_ALIASES = {
+    "Green Curly Lettuce": ["selada hijau", "selada keriting"],
+    "Lollo Rosso Lettuce": ["selada merah"],
+    "Red Oakleaf": ["selada oak merah"],
+    "Green Oakleaf": ["selada oak hijau"],
+    "Butterhead": ["selada butterhead"],
+    "Head Lettuce": ["selada kepala"],
+    "Romaine": ["selada romaine"],
+    "Baby Romaine": ["selada baby romaine"],
+    "Baby Bok Choy": ["pakcoy", "pak choi", "pakcoy baby"],
+    "Baby Carrots": ["wortel baby", "baby carrot", "carrot"],
+    "Baby Buncis": ["buncis baby"],
+    "Kale Curly": ["kale", "kale keriting"],
+    "Red Cherry Radish": ["red radish", "lobak merah"],
+    "Arugula/Rocula": ["arugula", "rocket", "roket"],
+    "Thyme": ["thyme"],
+    "Coriander": ["ketumbar", "cilantro"],
+    "Rosemary": ["rosemary"],
+    "Parsley": ["peterseli"],
+    "Tarragon": ["estragon"],
+    "Common Mint": ["mint", "daun mint"],
+    "Green Radish Micro": ["green radish", "radish hijau", "lobak hijau"],
+    "Red Radish Micro": ["red radish micro", "radish merah"],
+    "Green Mustard Micro": ["green mustard", "sawi hijau"],
+    "Red Amaranth Micro": ["red amaranth", "bayam merah"],
+    "Red Cabbage Micro": ["red cabbage", "kubis merah"],
+    "Snowpea Peashoots": ["snowpea", "pea shoots", "tunas kacang polong"],
+    "Tendril Peashoots": ["tendril", "pea tendril"],
+    "Coriander Micro": ["micro coriander", "micro ketumbar"],
+    "Marigold": ["marigold flower", "marigold f", "bunga marigold"],
+    "Marigold Leaf": ["marigold l", "daun marigold"],
+    "Dandelion": ["dandelion flower", "dandelion f", "bunga dandelion"],
+    "Dandelion Leaf": ["dandelion l", "daun dandelion"],
+    "Nasturtium": ["nasturtium flower", "nasturtium f", "bunga nasturtium"],
+    "Nasturtium Leaf": ["nasturtium l", "daun nasturtium"],
+    "Dianthus": ["dianthus", "anyelir"],
+    "Pansy": ["pansy", "bunga pansy"],
+    "Viola": ["viola"],
+}
+
+
+def product_aliases(item: str) -> set[str]:
+    return {item.casefold(), *(alias.casefold() for alias in PRODUCT_ALIASES.get(item, []))}
+
+
+def alias_catalog(items) -> dict:
+    return {item: sorted(product_aliases(item)) for item in sorted(set(items))}
 
 
 def measurement(value: str) -> tuple[float, str] | None:
@@ -74,9 +121,12 @@ def calculate_orders(chats: list[dict], prices: list[dict]) -> list[dict]:
                 pack_size = str(row.get("package_quantity", "")).strip().lower()
                 if not item or not row.get("price"):
                     continue
-                aliases = {item.lower(), item.lower().rstrip("s")}
+                aliases = product_aliases(item) | {item.lower().rstrip("s")}
                 if item.lower().startswith("baby "):
                     aliases.update({item.lower()[5:], item.lower()[5:].rstrip("s")})
+                base_name = item.lower().removesuffix(" leaf")
+                if not item.lower().endswith(" leaf") and re.search(rf"\b{re.escape(base_name)}\s+l\b", line):
+                    continue
                 if not any(re.search(rf"\b{re.escape(alias)}\b", line) for alias in aliases if alias):
                     continue
                 if unit == "pack" and not re.search(r"\bpacks?\b", line):
@@ -162,6 +212,10 @@ one variant's price for another variant.
 Use the app-calculated prices below as the source for totals. Do not recalculate
 them differently. If an item is not in the price list, leave its price blank and
 mention it as ambiguous.
+Use `name_aliases` to interpret Indonesian/common names, but write the canonical
+Excel product name in the workbook. `Marigold F` means Marigold flower;
+`Marigold L` means Marigold Leaf. Apply the same F/L rule to matching flower
+and leaf products.
 
 For this specific workbook, write the data into the existing table as follows:
 - Date section headers are in column F and look like `Rabu,1 Juli 2026`.
@@ -317,7 +371,7 @@ with left:
         st.warning(f"Pricelist could not be read automatically: {exc}")
         price_rows = []
     if price_source is not None and not price_rows:
-        st.warning("No price rows were detected. Check that the workbook has Product and Price (Rp) columns, or edit the JSON below manually.")
+        st.warning("No price rows were detected. Check that the workbook has Product and Price (Rp) columns.")
     source_bytes = pricelist_upload.getvalue() if pricelist_upload else (PRICE_LIST.read_bytes() if PRICE_LIST.exists() else b"")
     source_key = f"{PRICE_LIST_CACHE_VERSION}:{hashlib.sha256(source_bytes).hexdigest()}"
     if st.session_state.get("price_source") != source_key:
@@ -328,7 +382,12 @@ with left:
     st.caption("Choose a product and change its price when needed.")
     if edited_prices:
         product_names = sorted({row["item"] for row in edited_prices})
-        selected_product = st.selectbox("Product", product_names)
+        product_search = st.text_input("Search product", placeholder="Try selada merah, arugula, tendril, or snowpea")
+        filtered_products = [name for name in product_names if not product_search.strip() or any(product_search.casefold() in alias for alias in product_aliases(name))]
+        if not filtered_products:
+            st.warning("No matching products.")
+            filtered_products = product_names
+        selected_product = st.selectbox("Product", filtered_products, format_func=lambda name: f"{PRODUCT_ALIASES.get(name, [''])[0]} ({name})" if name in PRODUCT_ALIASES else name)
         variant_indices = [index for index, row in enumerate(edited_prices) if row["item"] == selected_product]
         variant_labels = [f"{edited_prices[index].get('option', '')} / {edited_prices[index].get('package_quantity', '')} / {edited_prices[index]['unit']}" for index in variant_indices]
         selected_variant = st.selectbox("Variant", range(len(variant_labels)), format_func=lambda index: variant_labels[index])
@@ -344,6 +403,7 @@ with left:
     if calculated_orders:
         st.code(json.dumps(calculated_orders, ensure_ascii=False, indent=2), language="json")
     payload = payload_for(chats, str(order_date), calculated_orders)
+    payload["name_aliases"] = alias_catalog(row["item"] for row in edited_prices)
     try:
         source_workbook = existing or template
         manifest = template_manifest(source_workbook)
