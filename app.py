@@ -11,6 +11,7 @@ import streamlit as st
 ROOT = Path(__file__).parent
 PROMPT_PATH = ROOT / "output" / "gemini_prompt.json"
 PRICE_LIST = ROOT / "Thira_Fresh_Farm_Pricelist_updated.xlsx"
+PRICE_LIST_CACHE_VERSION = "exact-excel-rows-v3"
 
 
 def measurement(value: str) -> tuple[float, str] | None:
@@ -318,7 +319,7 @@ with left:
     if price_source is not None and not price_rows:
         st.warning("No price rows were detected. Check that the workbook has Product and Price (Rp) columns, or edit the JSON below manually.")
     source_bytes = pricelist_upload.getvalue() if pricelist_upload else (PRICE_LIST.read_bytes() if PRICE_LIST.exists() else b"")
-    source_key = hashlib.sha256(source_bytes).hexdigest()
+    source_key = f"{PRICE_LIST_CACHE_VERSION}:{hashlib.sha256(source_bytes).hexdigest()}"
     if st.session_state.get("price_source") != source_key:
         st.session_state.price_source = source_key
         st.session_state.price_rows = price_rows
