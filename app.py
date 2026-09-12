@@ -42,29 +42,39 @@ def read_pricelist(uploaded) -> list[dict]:
 
 
 def calculate_orders(chats: list[dict], prices: list[dict]) -> list[dict]:
-    text = "\n".join(chat["text"] for chat in chats).lower()
     results = []
-    for row in prices:
-        item = str(row.get("item", "")).strip()
-        unit = str(row.get("unit", "pack")).strip().lower()
-        if not item or not row.get("price"):
-            continue
-        item_aliases = {item.lower(), item.lower().rstrip("s")}
-        if item.lower().startswith("baby "):
-            item_aliases.add(item.lower()[5:])
-            item_aliases.add(item.lower()[5:].rstrip("s"))
-        escaped = "(?:" + "|".join(re.escape(alias) for alias in sorted(item_aliases, key=len, reverse=True)) + ")"
-        unit_pattern = r"kg|kilogram|pack|pcs|piece|box|ikat|bunch"
-        patterns = [
-            rf"\b{escaped}\b\s*[:\-]?\s*(\d+(?:[.,]\d+)?)\s*({unit_pattern})?",
-            rf"(\d+(?:[.,]\d+)?)\s*({unit_pattern})\s+\b{escaped}\b",
-        ]
-        match = next((re.search(pattern, text, re.I) for pattern in patterns if re.search(pattern, text, re.I)), None)
-        if not match:
-            continue
-        quantity = float(match.group(1).replace(",", "."))
-        found_unit = next((group for group in match.groups()[1:] if group), unit)
-        results.append({"item": item, "quantity": quantity, "unit": found_unit, "unit_price": row["price"], "total": round(quantity * float(row["price"]), 2)})
+    for chat in chats:
+        for line in chat["text"].lower().splitlines():
+            for row in prices:
+                item = str(row.get("item", "")).strip()
+                unit = str(row.get("unit", "pack")).strip().lower()
+                option = str(row.get("option", "")).strip().lower()
+                pack_size = str(row.get("quantity", "")).strip().lower()
+                if not item or not row.get("price"):
+                    continue
+                aliases = {item.lower(), item.lower().rstrip("s")}
+                if item.lower().startswith("baby "):
+                    aliases.update({item.lower()[5:], item.lower()[5:].rstrip("s")})
+                if not any(re.search(rf"\b{re.escape(alias)}\b", line) for alias in aliases if alias):
+                    continue
+                if unit == "pack" and not re.search(r"\bpacks?\b", line):
+                    continue
+                if unit == "pcs" and re.search(r"\bpacks?\b", line):
+                    continue
+                if option and option not in ("/pcs", "/pack") and option not in line:
+                    continue
+                pack_pattern = re.escape(pack_size).replace(r"\ ", r"\s*")
+                if pack_size and not re.search(rf"\b{pack_pattern}\b", line):
+                    continue
+                if unit == "kg":
+                    match = re.search(r"(\d+(?:[.,]\d+)?)\s*kg\b", line)
+                elif unit == "pcs":
+                    match = re.search(r"(\d+(?:[.,]\d+)?)\s*(?:pcs?|pieces?)\b", line)
+                else:
+                    match = re.search(r"(\d+(?:[.,]\d+)?)\s*packs?\b", line)
+                quantity = float(match.group(1).replace(",", ".")) if match else 1
+                results.append({"item": item, "category": row.get("category", ""), "option": option or pack_size, "quantity": quantity, "unit": unit, "unit_price": row["price"], "total": round(quantity * float(row["price"]), 2)})
+                break
     return results
 
 
@@ -114,6 +124,11 @@ Use every message in the batch. Do not invent missing values. Leave unknown
 template cells blank. Keep orders separated by date when the template uses date
 sections. Interpret `DT` as delivery time/details and `A.n.` or `a.n.` as atas
 nama (the recipient/order name).
+
+Pricing variants are significant: match microgreens by product + `Cut` or
+`Non Cut` + the exact gram option; match edible flowers and edible leaves by
+product + `pcs` or `pack` + the exact pieces-per-pack option. Never substitute
+one variant's price for another variant.
 
 Use the app-calculated prices below as the source for totals. Do not recalculate
 them differently. If an item is not in the price list, leave its price blank and
@@ -282,7 +297,7 @@ with left:
     st.subheader("Price list")
     st.caption("Choose a product and change its price when needed.")
     if edited_prices:
-        product_names = [f"{row['item']} ({row['unit']})" for row in edited_prices]
+        product_names = [f"{row['item']} | {row.get('option', '')} | {row.get('quantity', '')} | {row['unit']}" for row in edited_prices]
         selected_index = st.selectbox("Product", range(len(product_names)), format_func=lambda index: product_names[index])
         selected_price = st.number_input("New price (Rp)", min_value=0.0, value=float(edited_prices[selected_index].get("price", 0)), step=500.0)
         if st.button("Update price"):
