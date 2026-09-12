@@ -12,6 +12,15 @@ PROMPT_PATH = ROOT / "output" / "gemini_prompt.json"
 PRICE_LIST = ROOT / "Thira_Fresh_Farm_Pricelist_updated.xlsx"
 
 
+def measurement(value: str) -> tuple[float, str] | None:
+    match = re.search(r"(\d+(?:[.,]\d+)?)\s*(kg|grams?|gr|g|pcs?|pieces?)", str(value or "").lower())
+    if not match:
+        return None
+    unit = match.group(2)
+    unit = "gr" if unit in ("g", "gram", "grams") else "pcs" if unit in ("pc", "pcs", "piece", "pieces") else unit
+    return float(match.group(1).replace(",", ".")), unit
+
+
 def read_pricelist(uploaded) -> list[dict]:
     if not uploaded:
         return []
@@ -31,12 +40,14 @@ def read_pricelist(uploaded) -> list[dict]:
             price = values[indexes["price (rp)"]]
             if not item or price in (None, ""):
                 continue
+            package_quantity = str(values[indexes.get("quantity", 0)] or "").strip()
             rows.append({
                 "item": str(item).strip(),
                 "unit": str(values[indexes.get("pricing unit", 0)] or "pack").strip().lower(),
                 "price": float(price),
                 "category": str(values[indexes.get("category", 0)] or "").strip(),
                 "option": str(values[indexes.get("option", 0)] or "").strip(),
+                "package_quantity": package_quantity,
             })
     return rows
 
@@ -49,7 +60,7 @@ def calculate_orders(chats: list[dict], prices: list[dict]) -> list[dict]:
                 item = str(row.get("item", "")).strip()
                 unit = str(row.get("unit", "pack")).strip().lower()
                 option = str(row.get("option", "")).strip().lower()
-                pack_size = str(row.get("quantity", "")).strip().lower()
+                pack_size = str(row.get("package_quantity", "")).strip().lower()
                 if not item or not row.get("price"):
                     continue
                 aliases = {item.lower(), item.lower().rstrip("s")}
@@ -68,9 +79,9 @@ def calculate_orders(chats: list[dict], prices: list[dict]) -> list[dict]:
                         continue
                     if option not in ("cut", "non cut") and option not in line:
                         continue
-                pack_pattern = re.escape(pack_size).replace(r"\ ", r"\s*")
-                pack_pattern = re.sub(r"gr", r"(?:gr|g|grams?)", pack_pattern)
-                if pack_size and not re.search(rf"\b{pack_pattern}\b", line):
+                expected_measurement = measurement(pack_size)
+                line_measurements = {measurement(value) for value in re.findall(r"\d+(?:[.,]\d+)?\s*(?:kg|grams?|gr|g|pcs?|pieces?)", line)}
+                if expected_measurement and expected_measurement not in line_measurements:
                     continue
                 if unit == "kg":
                     match = re.search(r"(\d+(?:[.,]\d+)?)\s*kg\b", line)
@@ -296,7 +307,7 @@ with left:
         price_rows = []
     if price_source is not None and not price_rows:
         st.warning("No price rows were detected. Check that the workbook has Product and Price (Rp) columns, or edit the JSON below manually.")
-    source_key = pricelist_upload.name if pricelist_upload else str(PRICE_LIST)
+    source_key = pricelist_upload.name if pricelist_upload else f"{PRICE_LIST}:{PRICE_LIST.stat().st_mtime_ns if PRICE_LIST.exists() else 0}"
     if st.session_state.get("price_source") != source_key:
         st.session_state.price_source = source_key
         st.session_state.price_rows = price_rows
@@ -307,7 +318,7 @@ with left:
         product_names = sorted({row["item"] for row in edited_prices})
         selected_product = st.selectbox("Product", product_names)
         variant_indices = [index for index, row in enumerate(edited_prices) if row["item"] == selected_product]
-        variant_labels = [f"{edited_prices[index].get('option', '')} / {edited_prices[index].get('quantity', '')} / {edited_prices[index]['unit']}" for index in variant_indices]
+        variant_labels = [f"{edited_prices[index].get('option', '')} / {edited_prices[index].get('package_quantity', '')} / {edited_prices[index]['unit']}" for index in variant_indices]
         selected_variant = st.selectbox("Variant", range(len(variant_labels)), format_func=lambda index: variant_labels[index])
         selected_index = variant_indices[selected_variant]
         selected_price = st.number_input("New price (Rp)", min_value=0.0, value=float(edited_prices[selected_index].get("price", 0)), step=500.0)
