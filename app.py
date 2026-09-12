@@ -49,7 +49,16 @@ def read_pricelist(uploaded) -> list[dict]:
                 "option": str(values[indexes.get("option", 0)] or "").strip(),
                 "package_quantity": package_quantity,
             })
-    return rows
+    unique = {}
+    for row in rows:
+        key = (
+            row["item"].casefold(),
+            row["unit"].casefold(),
+            row["option"].casefold(),
+            row["package_quantity"].casefold(),
+        )
+        unique[key] = row
+    return list(unique.values())
 
 
 def calculate_orders(chats: list[dict], prices: list[dict]) -> list[dict]:
