@@ -181,7 +181,9 @@ def template_manifest(uploaded) -> dict:
     return result
 
 
-def build_prompt(payload: dict, manifest: dict, existing_output: bool) -> str:
+def build_prompt(payload: dict, manifest: dict, mode: str) -> str:
+    existing_output = mode != "create"
+    edit_mode = mode == "edit"
     has_template = manifest.get("attached_to_streamlit", False)
     template_rule = (
         "Use the attached `rekap_pesanan.xlsx` as the current workbook to UPDATE. Preserve every existing "
@@ -196,6 +198,8 @@ def build_prompt(payload: dict, manifest: dict, existing_output: bool) -> str:
         else "No Excel template was attached. If you generate a workbook, use a simple order table and say that the original template was not provided."
     )
     return f"""Convert the WhatsApp order messages below into the workbook.
+
+Operation mode: {mode}
 
 {template_rule}
 
@@ -220,12 +224,21 @@ and leaf products.
 For this specific workbook, write the data into the existing table as follows:
 - Date section headers are in column F and look like `Rabu,1 Juli 2026`.
 - The table headers are on the row immediately below each date header.
+- The unlabeled column D is the global order sequence: it continues across
+  every date and must not reset.
+- Column E, headed `NO`, is the per-date order number: reset it to 1 at the
+  beginning of each date section and increment it only within that date.
+- When one batch contains multiple dates, calculate column D globally but
+  calculate column E separately for each date.
 - Column F is normally the restaurant, but it can also contain PO codes,
   delivery text, addresses, or `DT... a.n. ...` metadata. Never create a new
   restaurant from a PO/DT/address value.
 - Column H is `Nama Item`; column I is item type; J is quantity; K is ready
   stock; L is unit; M is unit price; N is item total; O is order total;
   P is delivery/ongkir detail; Q is pickup code such as T1/T2.
+- Column Q (`Ambil`) must remain blank unless the new chat explicitly contains
+  an `Ambil` value such as `T1` or `T2`. Never default it to `T1`, `T2`, or any
+  other value.
 - A non-empty order number in column D starts a new order. Blank order-number
   cells continue the previous order until the next order number.
 - Build date sections only for dates found in the new input. Put each chat item
@@ -233,12 +246,18 @@ For this specific workbook, write the data into the existing table as follows:
   address, PO code, atas nama, and ongkir in the existing row/field used by the
   template; do not move them into the restaurant field.
 - {"For an update, keep all existing data. For the same date, append new rows after the last existing order in that date section. For a new date, add a complete new section below the last existing section." if existing_output else "Start with blank data rows. Never copy sample order values from the attached workbook. If several messages contain the same date, combine them in that one new date section; do not overwrite one message with another."}
+- {"EDIT MODE: match each chat order to an existing row using date + restaurant + item + variant (Cut/Non Cut and package quantity, or pcs/pack and pieces). If it matches, keep unchanged values unchanged and update only fields explicitly changed in the chat. Do not create a duplicate row. If no exact match exists, do not add it; list it as unmatched in the note." if edit_mode else ""}
 - {"When adding a new date section, copy the complete existing section's date row, header row, body-row borders, fills, fonts, alignment, number formats, row heights, and formulas." if existing_output else "For every new date, create a complete section by copying only the template's structure: date row, header row, body-row borders, fills, fonts, alignment, number formats, row heights, and formulas. Then fill the blank body rows with the new input."}
 - Never use a blank row without copying its neighboring body-row styles. Every
   new item row must have the same borders and formatting as the template body.
+- Blank rows that remain inside the table are still table rows: keep their full
+  borders across every table column, even when every cell is empty. Do not
+  leave unbordered gaps between orders or at the bottom of a date section.
+- Copy the complete body-row style into unused rows before clearing their
+  values; blank cells must retain borders, fills, alignment, and number formats.
 
 Do not interpret this as permission to edit a user's local computer. Return one
-downloadable workbook. {"This is an update: the output must contain all previous data plus the new data." if existing_output else "This is initial creation: the output must contain only the new data in the copied template layout."}
+downloadable workbook. {"This is an edit/update: preserve all unrelated existing data." if edit_mode else "This is an update: the output must contain all previous data plus the new data." if existing_output else "This is initial creation: the output must contain only the new data in the copied template layout."}
 
 Critical file rule:
 - Produce exactly one workbook named `rekap_pesanan.xlsx`.
@@ -350,10 +369,14 @@ st.caption("Batch WhatsApp chats into one strict prompt for Gemini Web.")
 
 with st.sidebar:
     st.header("Workbook inputs")
+    operation_label = st.radio("Operation", ["Create new workbook", "Add new orders", "Edit existing orders"])
+    mode = {"Create new workbook": "create", "Add new orders": "add", "Edit existing orders": "edit"}[operation_label]
     template = st.file_uploader("Initial example/template (optional)", type=["xlsx"], key="template")
     existing = st.file_uploader("Current rekap_pesanan.xlsx for updates (optional)", type=["xlsx"], key="existing")
     pricelist_upload = st.file_uploader("Pricelist Excel (optional)", type=["xlsx"], key="pricelist")
     st.info("For later entries, upload the latest rekap_pesanan.xlsx here. Attach the downloaded workbook manually in Gemini Web.")
+    if mode in ("add", "edit") and not existing:
+        st.warning("Upload the current rekap_pesanan.xlsx for this operation mode.")
 
 left, right = st.columns(2)
 with left:
@@ -403,15 +426,16 @@ with left:
     if calculated_orders:
         st.code(json.dumps(calculated_orders, ensure_ascii=False, indent=2), language="json")
     payload = payload_for(chats, str(order_date), calculated_orders)
+    payload["operation"] = mode
     payload["name_aliases"] = alias_catalog(row["item"] for row in edited_prices)
     try:
         source_workbook = existing or template
         manifest = template_manifest(source_workbook)
-        prompt = build_prompt(payload, manifest, existing is not None)
+        prompt = build_prompt(payload, manifest, mode)
     except (OSError, RuntimeError, ValueError) as exc:
         st.error(str(exc))
         manifest = {"attached_to_streamlit": False}
-        prompt = build_prompt(payload, manifest, existing is not None)
+        prompt = build_prompt(payload, manifest, mode)
 
     st.subheader("2. Generate order list from the Excel")
     summary_date = st.text_input("Date to find in the workbook", value=order_date.strftime("%Y-%m-%d"))

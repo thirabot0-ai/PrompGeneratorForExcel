@@ -10,7 +10,9 @@ latest `rekap_pesanan.xlsx` as the current workbook to update. The Streamlit
 upload is not automatically visible to Gemini Web, so download it and attach it
 manually in the same Gemini conversation. Add multiple `.txt` chat files or
 paste chats in bulk. The app does not call Gemini or need the client screenshots.
-It generates a strict prompt for either initial creation or non-destructive
+Choose Create, Add, or Edit mode. Edit mode matches date, restaurant, item, and
+variant, then changes only explicitly changed fields without adding duplicates.
+The app generates a strict prompt for either initial creation or non-destructive
 updates, without V1/V2/Final duplicates. With an uploaded workbook, it can also
 create a dated order list containing items, quantities, prices, `DT` delivery
 details, and `A.n.` recipient names.
