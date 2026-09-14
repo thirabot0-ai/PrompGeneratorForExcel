@@ -173,21 +173,20 @@ def calculate_orders(chats: list[dict], prices: list[dict]) -> list[dict]:
                     continue
                 if unit == "pcs" and re.search(r"\bpacks?\b", line):
                     continue
-                if option and option not in ("/pcs", "/pack"):
+                expected_measurement = measurement(pack_size)
+                line_measurements = {measurement(value) for value in re.findall(r"\d+(?:[.,]\d+)?\s*(?:kg|grams?|gr|g|pcs?|pieces?)", line)}
+                variant_key = (item.casefold(), unit, option)
+                # Cut/non-cut is a real selector. Other options can merely
+                # describe a single pack (for example Thyme's 100 gr).
+                requires_variant = variant_counts.get(variant_key, 0) > 1 or option in ("cut", "non cut")
+                if requires_variant and option and option not in ("/pcs", "/pack"):
                     if option == "cut" and re.search(r"\bnon\s*cut\b", line):
                         continue
                     if option == "non cut" and not re.search(r"\bnon\s*cut\b", line):
                         continue
                     if option not in ("cut", "non cut") and option not in line:
                         continue
-                expected_measurement = measurement(pack_size)
-                line_measurements = {measurement(value) for value in re.findall(r"\d+(?:[.,]\d+)?\s*(?:kg|grams?|gr|g|pcs?|pieces?)", line)}
-                # A pcs row is priced per individual piece; its 1 pc source
-                # quantity is not a required order variant. Pack rows do need
-                # their exact gram/piece package size.
-                variant_key = (item.casefold(), unit, option)
-                requires_package_size = variant_counts.get(variant_key, 0) > 1
-                if requires_package_size and expected_measurement and expected_measurement not in line_measurements:
+                if requires_variant and expected_measurement and expected_measurement not in line_measurements:
                     continue
                 if unit == "kg":
                     match = re.search(r"(\d+(?:[.,]\d+)?)\s*kg\b", line)
@@ -264,6 +263,8 @@ chat directly. For `pack` products, require the gram or pieces-per-pack value
 only when the same product/unit/option has multiple pack-price rows. For a
 single-pack product such as Thyme, `Thyme 2 pack` is enough; its `100 gr` is
 descriptive package content, not a required variant selector.
+Example: `Thyme 2 pack` must use the Thyme pack price and must not be reported
+as ambiguous. `Thyme 2 pack 100 gr` is also valid, but the `100 gr` is optional.
 
 Use the app-calculated prices below as the source for totals. Do not recalculate
 them differently. Every item present in `calculated_orders` has a confirmed
