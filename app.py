@@ -51,6 +51,41 @@ PRODUCT_ALIASES = {
     "Pansy": ["pansy", "bunga pansy"],
     "Viola": ["viola"],
 }
+EXAMPLE_CHAT = """Tanggal order: 14 September 2026
+
+Eastman Kitchen pesan untuk 14 September:
+Selada merah 3 kg
+Selada hijau 2 kg
+DT 11.00, Jalan Sudirman No. 10, a.n. Rina
+Ambil T1
+
+Tavern Kitchen:
+Green Radish Micro 2 pack cut 60 gr
+Green Radish Micro 1 pack non cut 90 gr
+Baby Carrots 3 kg
+DT 13.00 ke Jalan Kaliurang a.n. Budi
+
+Garden Bistro:
+Marigold F 12 pcs
+Marigold L 1 pack isi 60 pcs
+Apple Blossoms 2 pack isi 18 pcs
+Viola 10 pcs
+DT 15.30, Jalan Diponegoro, atas nama Sari
+
+Hotel Merah:
+Green Mustard Micro 2 pack cut 5 gr
+Green Mustard Micro 1 pack cut 10 gr
+Tendril 2 pack non cut 60 gr
+Ketumbar 1 pack 100 gr
+PO00678124
+DT 09.30, Jalan Prawirotaman, A.n. Dimas
+
+15 September 2026
+
+Resto Baru pesan:
+Snowpea 2 pack cut 30 gr
+Selada merah 1 kg
+Alamat Seturan, a.n. Nina"""
 
 
 def product_aliases(item: str) -> set[str]:
@@ -381,6 +416,7 @@ with st.sidebar:
 left, right = st.columns(2)
 with left:
     st.subheader("1. Add chats in bulk")
+    st.text_area("Recommended chat format (example)", EXAMPLE_CHAT, height=420, disabled=True)
     order_date = st.date_input("Order date", value=date.today())
     chat_files = st.file_uploader("Upload multiple .txt chat files", type=["txt"], accept_multiple_files=True)
     pasted = st.text_area("Or paste multiple chats", height=260, placeholder="Paste all messages here, or separate batches with headings.")
