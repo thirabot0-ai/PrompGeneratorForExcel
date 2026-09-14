@@ -51,9 +51,9 @@ PRODUCT_ALIASES = {
     "Pansy": ["pansy", "bunga pansy"],
     "Viola": ["viola"],
 }
-EXAMPLE_CHAT = """14 September 2026
+EXAMPLE_CHAT = """Tanggal order: 14 September 2026
 
-Eastman Kitchen:
+Eastman Kitchen pesan untuk 14 September:
 Selada merah 3 kg
 Selada hijau 2 kg
 DT 11.00, Jalan Sudirman No. 10, a.n. Rina
@@ -63,6 +63,7 @@ Tavern Kitchen:
 Green Radish Micro 2 pack cut 60 gr
 Green Radish Micro 1 pack non cut 90 gr
 Baby Carrots 3 kg
+Ongkir Rp30.000
 DT 13.00 ke Jalan Kaliurang a.n. Budi
 
 Garden Bistro:
@@ -147,6 +148,10 @@ def read_pricelist(uploaded) -> list[dict]:
 
 def calculate_orders(chats: list[dict], prices: list[dict]) -> list[dict]:
     results = []
+    variant_counts = {}
+    for row in prices:
+        key = (str(row.get("item", "")).casefold(), str(row.get("unit", "")).casefold(), str(row.get("option", "")).casefold())
+        variant_counts[key] = variant_counts.get(key, 0) + 1
     for chat in chats:
         for line in chat["text"].lower().splitlines():
             for row in prices:
@@ -177,7 +182,12 @@ def calculate_orders(chats: list[dict], prices: list[dict]) -> list[dict]:
                         continue
                 expected_measurement = measurement(pack_size)
                 line_measurements = {measurement(value) for value in re.findall(r"\d+(?:[.,]\d+)?\s*(?:kg|grams?|gr|g|pcs?|pieces?)", line)}
-                if expected_measurement and expected_measurement not in line_measurements:
+                # A pcs row is priced per individual piece; its 1 pc source
+                # quantity is not a required order variant. Pack rows do need
+                # their exact gram/piece package size.
+                variant_key = (item.casefold(), unit, option)
+                requires_package_size = variant_counts.get(variant_key, 0) > 1
+                if requires_package_size and expected_measurement and expected_measurement not in line_measurements:
                     continue
                 if unit == "kg":
                     match = re.search(r"(\d+(?:[.,]\d+)?)\s*kg\b", line)
@@ -248,9 +258,17 @@ Pricing variants are significant: match microgreens by product + `Cut` or
 product + `pcs` or `pack` + the exact pieces-per-pack option. Never substitute
 one variant's price for another variant.
 
+For `pcs` products, the pricelist's `1 pc` means the price is per individual
+piece. Do not require grams or a package-size value; use the quantity in the
+chat directly. For `pack` products, require the gram or pieces-per-pack value
+only when the same product/unit/option has multiple pack-price rows. For a
+single-pack product such as Thyme, `Thyme 2 pack` is enough; its `100 gr` is
+descriptive package content, not a required variant selector.
+
 Use the app-calculated prices below as the source for totals. Do not recalculate
-them differently. If an item is not in the price list, leave its price blank and
-mention it as ambiguous.
+them differently. Every item present in `calculated_orders` has a confirmed
+price and must not be marked ambiguous. Only items absent from that list may be
+reported as ambiguous.
 Use `name_aliases` to interpret Indonesian/common names, but write the canonical
 Excel product name in the workbook. `Marigold F` means Marigold flower;
 `Marigold L` means Marigold Leaf. Apply the same F/L rule to matching flower
