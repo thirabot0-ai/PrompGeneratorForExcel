@@ -51,9 +51,9 @@ PRODUCT_ALIASES = {
     "Pansy": ["pansy", "bunga pansy"],
     "Viola": ["viola"],
 }
-EXAMPLE_CHAT = """14 September 2026
+EXAMPLE_CHAT = """Tanggal order: 14 September 2026
 
-Eastman Kitchen :
+Eastman Kitchen pesan untuk 14 September:
 Selada merah 3 kg
 Selada hijau 2 kg
 DT 11.00, Jalan Sudirman No. 10, a.n. Rina
@@ -345,7 +345,7 @@ def _date_matches(text: str, selected: str) -> bool:
     match = re.search(r"(\d{1,2})\s+([A-Za-z]+)\s+(\d{4})", text)
     if not match:
         return False
-    months = {"januari": 1, "februari": 2, "maret": 3, "april": 4, "mei": 5, "juni": 6, "juli": 7, "agustus": 8, "september": 9, "oktober": 10, "november": 11, "desember": 12}
+    months = {"january": 1, "januari": 1, "february": 2, "februari": 2, "march": 3, "maret": 3, "april": 4, "may": 5, "mei": 5, "june": 6, "juni": 6, "july": 7, "juli": 7, "august": 8, "agustus": 8, "september": 9, "october": 10, "oktober": 10, "november": 11, "december": 12, "desember": 12}
     try:
         wanted = datetime.strptime(selected, "%Y-%m-%d").date()
         return (int(match.group(3)), months.get(match.group(2).lower()), int(match.group(1))) == (wanted.year, wanted.month, wanted.day)
@@ -499,9 +499,10 @@ with left:
 
     st.subheader("2. Generate order list from the Excel")
     summary_date = st.text_input("Date to find in the workbook", value=order_date.strftime("%Y-%m-%d"))
-    if template and st.button("Generate dated order list"):
+    summary_workbook = existing or template
+    if summary_workbook and st.button("Generate dated order list"):
         try:
-            st.session_state.order_list = order_text_from_excel(template, summary_date)
+            st.session_state.order_list = order_text_from_excel(summary_workbook, summary_date)
         except (OSError, RuntimeError, ValueError) as exc:
             st.error(str(exc))
     if "order_list" in st.session_state:
