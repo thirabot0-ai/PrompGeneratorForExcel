@@ -416,10 +416,10 @@ with st.sidebar:
 left, right = st.columns(2)
 with left:
     st.subheader("1. Add chats in bulk")
-    st.text_area("Recommended chat format (example)", EXAMPLE_CHAT, height=420, disabled=True)
     order_date = st.date_input("Order date", value=date.today())
     chat_files = st.file_uploader("Upload multiple .txt chat files", type=["txt"], accept_multiple_files=True)
     pasted = st.text_area("Or paste multiple chats", height=260, placeholder="Paste all messages here, or separate batches with headings.")
+    st.text_area("Recommended chat format (editable/copyable example)", EXAMPLE_CHAT, height=420, key="example_chat")
     chats = [{"name": file.name, "text": file.getvalue().decode("utf-8", errors="replace")} for file in chat_files]
     if pasted.strip():
         chats.append({"name": "pasted-chat", "text": pasted.strip()})
