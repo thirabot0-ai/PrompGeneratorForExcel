@@ -53,7 +53,7 @@ PRODUCT_ALIASES = {
 }
 EXAMPLE_CHAT = """14 September 2026
 
-Eastman Kitchen
+Eastman Kitchen:
 Selada merah 3 kg
 Selada hijau 2 kg
 DT 11.00, Jalan Sudirman No. 10, a.n. Rina
