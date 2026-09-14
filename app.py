@@ -51,9 +51,9 @@ PRODUCT_ALIASES = {
     "Pansy": ["pansy", "bunga pansy"],
     "Viola": ["viola"],
 }
-EXAMPLE_CHAT = """14 September 2026
+EXAMPLE_CHAT = """Tanggal order: 14 September 2026
 
-Eastman Kitchen:
+Eastman Kitchen pesan untuk 14 September:
 Selada merah 3 kg
 Selada hijau 2 kg
 DT 11.00, Jalan Sudirman No. 10, a.n. Rina
@@ -271,6 +271,11 @@ For this specific workbook, write the data into the existing table as follows:
 - Column H is `Nama Item`; column I is item type; J is quantity; K is ready
   stock; L is unit; M is unit price; N is item total; O is order total;
   P is delivery/ongkir detail; Q is pickup code such as T1/T2.
+- Use the template's currency formatting for every monetary cell. Store prices
+  and totals as numeric Excel values, not text, and display them in the same
+  format as the example: `Rp35,000.00` with comma thousands separators and two
+  decimal places. Apply it to Harga, Harga Item, Jumlah Penjualan Produk,
+  Ongkir, and Harga Beli where those cells contain amounts.
 - Column Q (`Ambil`) must remain blank unless the new chat explicitly contains
   an `Ambil` value such as `T1` or `T2`. Never default it to `T1`, `T2`, or any
   other value.
